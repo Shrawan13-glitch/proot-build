@@ -120,8 +120,7 @@ jobs:
             STRIP="$STRIP" \
             OBJCOPY="$TOOLCHAIN/bin/llvm-objcopy" \
             OBJDUMP="$TOOLCHAIN/bin/llvm-objdump" \
-            PROOT_UNBUNDLE_LOADER=/placeholder \
-            "CPPFLAGS=-D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -I." \
+            "CPPFLAGS=-D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -DPROOT_UNBUNDLE_LOADER=\\\"/placeholder\\\" -I." \
             "CFLAGS=$CFLAGS_BASE -Wno-implicit-function-declaration -I$TALLOC_DIR/.. -I$TALLOC_DIR" \
             "LDFLAGS=-fPIE -fPIC $TALLOC_DIR/libtalloc.a -Wl,-z,noexecstack" \
             -j$(nproc)
