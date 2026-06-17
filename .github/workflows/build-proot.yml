@@ -120,7 +120,7 @@ jobs:
             STRIP="$STRIP" \
             OBJCOPY="$TOOLCHAIN/bin/llvm-objcopy" \
             OBJDUMP="$TOOLCHAIN/bin/llvm-objdump" \
-            "CPPFLAGS=-D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -DPROOT_UNBUNDLE_LOADER=\\\"/placeholder\\\" -I." \
+            "CPPFLAGS=-D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -I." \
             "CFLAGS=$CFLAGS_BASE -Wno-implicit-function-declaration -I$TALLOC_DIR/.. -I$TALLOC_DIR" \
             "LDFLAGS=-fPIE -fPIC $TALLOC_DIR/libtalloc.a -Wl,-z,noexecstack" \
             -j$(nproc)
@@ -128,11 +128,7 @@ jobs:
           # Package outputs
           mkdir -p "$GITHUB_WORKSPACE/output/${{ matrix.abi }}"
           cp proot "$GITHUB_WORKSPACE/output/${{ matrix.abi }}/libproot.so"
-          if [ -f loader/loader ]; then
-            cp loader/loader "$GITHUB_WORKSPACE/output/${{ matrix.abi }}/libproot-loader.so"
-          fi
           "$STRIP" "$GITHUB_WORKSPACE/output/${{ matrix.abi }}/libproot.so" 2>/dev/null || true
-          "$STRIP" "$GITHUB_WORKSPACE/output/${{ matrix.abi }}/libproot-loader.so" 2>/dev/null || true
 
       - uses: actions/upload-artifact@v4
         with:
