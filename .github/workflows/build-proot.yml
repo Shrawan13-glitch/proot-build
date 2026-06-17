@@ -1,0 +1,140 @@
+name: Build proot for Android
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        abi: [arm64-v8a, x86_64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up NDK
+        run: |
+          ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
+          NDK_VERSION=$(ls $ANDROID_SDK_ROOT/ndk/ | sort -V | tail -1)
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> $GITHUB_ENV
+          echo "NDK version: $NDK_VERSION"
+
+      - name: Build proot for ${{ matrix.abi }}
+        run: |
+          set -euo pipefail
+          HOST_OS="linux-x86_64"
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$HOST_OS"
+          export PATH="$TOOLCHAIN/bin:$PATH"
+
+          MIN_API=26
+          case "${{ matrix.abi }}" in
+            arm64-v8a) HOST="aarch64-linux-android" ;;
+            x86_64)    HOST="x86_64-linux-android" ;;
+          esac
+
+          CC="$TOOLCHAIN/bin/${HOST}${MIN_API}-clang"
+          AR="$TOOLCHAIN/bin/llvm-ar"
+          RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
+          STRIP="$TOOLCHAIN/bin/llvm-strip"
+          CFLAGS_BASE="-fPIE -fPIC -O2 -DANDROID"
+
+          # Build talloc
+          TALLOC_VERSION="2.4.2"
+          curl -fsSL "https://download.samba.org/pub/talloc/talloc-${TALLOC_VERSION}.tar.gz" | tar xz
+          cd "talloc-${TALLOC_VERSION}"
+
+          cat > lib/replace/replace.h << 'EOF'
+          #ifndef _LIBREPLACE_REPLACE_H
+          #define _LIBREPLACE_REPLACE_H
+          #ifndef __STDC_WANT_LIB_EXT1__
+          #define __STDC_WANT_LIB_EXT1__ 1
+          #endif
+          #include "config.h"
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <stdarg.h>
+          #include <string.h>
+          #include <strings.h>
+          #include <unistd.h>
+          #include <stdint.h>
+          #include <stdbool.h>
+          #include <sys/types.h>
+          #include <errno.h>
+          #include <fcntl.h>
+          #include <time.h>
+          #ifndef MIN
+          #define MIN(a,b) ((a)<(b)?(a):(b))
+          #endif
+          #ifndef MAX
+          #define MAX(a,b) ((a)>(b)?(a):(b))
+          #endif
+          #ifndef va_copy
+          #if defined(__va_copy)
+          #define va_copy(dest, src) __va_copy(dest, src)
+          #else
+          #define va_copy(dest, src) (dest) = (src)
+          #endif
+          #endif
+          #endif
+          EOF
+
+          cat > config.h << 'EOF'
+          #define HAVE_LONG_LONG 1
+          #define HAVE_STRTOULL 1
+          #define HAVE_STRTOLL 1
+          #define HAVE_STDINT_H 1
+          #define HAVE_UNISTD_H 1
+          #define HAVE_STRING_H 1
+          #define HAVE_STDLIB_H 1
+          #define HAVE_STDIO_H 1
+          #define HAVE_MALLOC_H 1
+          #define HAVE_SYS_TYPES_H 1
+          #define HAVE_SYS_STAT_H 1
+          #define HAVE_FCNTL_H 1
+          #define HAVE_ERRNO_H 1
+          #define HAVE_SIGNAL_H 1
+          #define HAVE_VSNPRINTF 1
+          #define HAVE_SETENV 1
+          #define HAVE_UNSETENV 1
+          #define LT_OBJDIR ".libs/"
+          #define TALLOC_BUILD_VERSION_MAJOR 2
+          #define TALLOC_BUILD_VERSION_MINOR 4
+          #define TALLOC_BUILD_VERSION_RELEASE 2
+          EOF
+
+          mkdir -p talloc_build
+          "$CC" -I. -Ilib/replace $CFLAGS_BASE -c talloc.c -o talloc_build/talloc.o
+          cd talloc_build
+          "$AR" rcs libtalloc.a talloc.o
+          "$RANLIB" libtalloc.a
+          TALLOC_DIR="$PWD"
+          cd ../..
+
+          # Build proot from src/
+          cd src
+          make -f GNUmakefile \
+            CC="$CC" \
+            STRIP="$STRIP" \
+            OBJCOPY="$TOOLCHAIN/bin/llvm-objcopy" \
+            OBJDUMP="$TOOLCHAIN/bin/llvm-objdump" \
+            PROOT_UNBUNDLE_LOADER=/placeholder \
+            "CPPFLAGS=-D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE -I." \
+            "CFLAGS=$CFLAGS_BASE -I$TALLOC_DIR/.. -I$TALLOC_DIR" \
+            "LDFLAGS=-fPIE -fPIC $TALLOC_DIR/libtalloc.a -Wl,-z,noexecstack" \
+            -j$(nproc)
+
+          # Package outputs
+          mkdir -p "$GITHUB_WORKSPACE/output/${{ matrix.abi }}"
+          cp proot "$GITHUB_WORKSPACE/output/${{ matrix.abi }}/libproot.so"
+          if [ -f loader/loader ]; then
+            cp loader/loader "$GITHUB_WORKSPACE/output/${{ matrix.abi }}/libproot-loader.so"
+          fi
+          "$STRIP" "$GITHUB_WORKSPACE/output/${{ matrix.abi }}/libproot.so" 2>/dev/null || true
+          "$STRIP" "$GITHUB_WORKSPACE/output/${{ matrix.abi }}/libproot-loader.so" 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proot-${{ matrix.abi }}
+          path: output/${{ matrix.abi }}/
