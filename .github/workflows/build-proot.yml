@@ -98,6 +98,7 @@ jobs:
           #define HAVE_VSNPRINTF 1
           #define HAVE_SETENV 1
           #define HAVE_UNSETENV 1
+          #define HAVE_VA_COPY 1
           #define LT_OBJDIR ".libs/"
           #define TALLOC_BUILD_VERSION_MAJOR 2
           #define TALLOC_BUILD_VERSION_MINOR 4
